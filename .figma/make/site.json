@@ -1,0 +1,10 @@
+{
+  "description": "A community-based marketplace for Palembang, connecting families to buy, rent, and access local services with secure transactions and AI-driven product creation.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
