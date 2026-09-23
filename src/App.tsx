@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { register, login, logout, getSession, generateOtp, phoneExists, type User } from './auth'
 
 // ─── Data ───────────────────────────────────────────────────────────────────
 
@@ -99,25 +100,45 @@ function Toast({ msg, onClose }: { msg: string; onClose: () => void }) {
 
 // ─── Modal: Login ────────────────────────────────────────────────────────────
 
-function LoginModal({ open, onClose, onSwitch, onSuccess }: { open: boolean; onClose: () => void; onSwitch: () => void; onSuccess: (name: string) => void }) {
+function LoginModal({ open, onClose, onSwitch, onSuccess }: { open: boolean; onClose: () => void; onSwitch: () => void; onSuccess: (user: User) => void }) {
   const [phone, setPhone] = useState('')
   const [otp, setOtp] = useState('')
   const [step, setStep] = useState<'phone' | 'otp'>('phone')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [sentOtp, setSentOtp] = useState('')
+
+  function reset() { setPhone(''); setOtp(''); setStep('phone'); setError(''); setSentOtp('') }
+
+  function handleClose() { reset(); onClose() }
 
   function handlePhone() {
-    if (!phone) return
+    setError('')
+    const cleaned = phone.replace(/\D/g, '')
+    if (cleaned.length < 9) { setError('Nomor HP tidak valid (min. 9 digit)'); return }
+    if (!phoneExists(phone)) { setError('Nomor HP belum terdaftar. Silakan daftar terlebih dahulu.'); return }
     setLoading(true)
-    setTimeout(() => { setLoading(false); setStep('otp') }, 1000)
+    const code = generateOtp(phone)
+    setSentOtp(code)
+    setTimeout(() => { setLoading(false); setStep('otp') }, 800)
   }
+
   function handleOtp() {
-    if (otp.length < 4) return
+    setError('')
+    if (otp !== sentOtp) { setError('Kode OTP salah. Coba lagi.'); return }
     setLoading(true)
-    setTimeout(() => { setLoading(false); onSuccess('Pengguna PUNYA'); onClose() }, 1000)
+    setTimeout(() => {
+      const result = login(phone)
+      setLoading(false)
+      if (!result.ok) { setError(result.error); return }
+      reset()
+      onSuccess(result.user)
+      onClose()
+    }, 600)
   }
 
   return (
-    <Modal open={open} onClose={onClose}>
+    <Modal open={open} onClose={handleClose}>
       <div className="p-6 lg:p-8">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-9 h-9 rounded-xl bg-[#2E7D5B] flex items-center justify-center">
@@ -125,57 +146,74 @@ function LoginModal({ open, onClose, onSwitch, onSuccess }: { open: boolean; onC
           </div>
           <div>
             <h2 className="font-bold text-lg text-[#1A1A1A]">Masuk ke PUNYA</h2>
-            <p className="text-xs text-gray-400">Pakai nomor HP Anda</p>
+            <p className="text-xs text-gray-400">Pakai nomor HP yang sudah terdaftar</p>
           </div>
         </div>
 
         {step === 'phone' ? (
           <>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Nomor HP</label>
-            <div className="flex gap-2 mb-4">
-              <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 flex items-center text-sm text-gray-500 font-medium">+62</div>
+            <div className="flex gap-2 mb-1">
+              <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 flex items-center text-sm text-gray-500 font-medium whitespace-nowrap">+62</div>
               <input
-                className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#2E7D5B] focus:ring-2 focus:ring-[#2E7D5B]/20 transition"
+                className={`flex-1 border rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 transition ${error ? 'border-red-400 focus:border-red-400 focus:ring-red-100' : 'border-gray-200 focus:border-[#2E7D5B] focus:ring-[#2E7D5B]/20'}`}
                 placeholder="812-3456-7890"
                 value={phone}
-                onChange={e => setPhone(e.target.value)}
+                onChange={e => { setPhone(e.target.value); setError('') }}
+                onKeyDown={e => e.key === 'Enter' && handlePhone()}
                 type="tel"
+                autoFocus
               />
             </div>
-            <button
-              onClick={handlePhone}
-              disabled={!phone || loading}
-              className="w-full bg-[#2E7D5B] hover:bg-[#1F5940] disabled:opacity-50 text-white font-semibold py-3 rounded-xl text-sm transition-all"
-            >
-              {loading ? 'Mengirim OTP...' : 'Kirim Kode OTP'}
+            {error && <p className="text-xs text-red-500 mb-3 mt-1">{error}</p>}
+            {!error && <div className="mb-3" />}
+            <button onClick={handlePhone} disabled={!phone || loading} className="w-full bg-[#2E7D5B] hover:bg-[#1F5940] disabled:opacity-50 text-white font-semibold py-3 rounded-xl text-sm transition-all">
+              {loading ? 'Memeriksa...' : 'Lanjutkan'}
             </button>
           </>
         ) : (
           <>
-            <p className="text-sm text-gray-500 mb-4">Masukkan kode 4 digit yang dikirim ke <span className="font-semibold text-[#1A1A1A]">+62{phone}</span></p>
-            <input
-              className="w-full border border-gray-200 rounded-xl px-3 py-3 text-center text-2xl font-bold tracking-[0.5em] outline-none focus:border-[#2E7D5B] focus:ring-2 focus:ring-[#2E7D5B]/20 transition mb-4"
-              placeholder="••••"
-              maxLength={4}
-              value={otp}
-              onChange={e => setOtp(e.target.value)}
-              type="number"
-            />
-            <button
-              onClick={handleOtp}
-              disabled={otp.length < 4 || loading}
-              className="w-full bg-[#2E7D5B] hover:bg-[#1F5940] disabled:opacity-50 text-white font-semibold py-3 rounded-xl text-sm transition-all"
-            >
+            <p className="text-sm text-gray-600 mb-1">Kode OTP dikirim ke <span className="font-semibold text-[#1A1A1A]">+62{phone}</span></p>
+            {/* Demo hint */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-4 flex items-center gap-2">
+              <span className="text-amber-500 text-sm">💡</span>
+              <p className="text-xs text-amber-800">Demo mode — kode OTP Anda: <span className="font-bold text-amber-900 tracking-widest">{sentOtp}</span></p>
+            </div>
+            <div className="flex gap-2 justify-center mb-1">
+              {[0,1,2,3].map(i => (
+                <input
+                  key={i}
+                  id={`otp-${i}`}
+                  className={`w-12 h-14 border rounded-xl text-center text-2xl font-bold outline-none focus:ring-2 transition ${error ? 'border-red-400 focus:border-red-400 focus:ring-red-100' : 'border-gray-200 focus:border-[#2E7D5B] focus:ring-[#2E7D5B]/20'}`}
+                  maxLength={1}
+                  type="number"
+                  value={otp[i] ?? ''}
+                  onChange={e => {
+                    const v = e.target.value.slice(-1)
+                    const arr = otp.split('')
+                    arr[i] = v
+                    const next = arr.join('').slice(0, 4)
+                    setOtp(next)
+                    setError('')
+                    if (v && i < 3) (document.getElementById(`otp-${i+1}`) as HTMLInputElement)?.focus()
+                  }}
+                  onKeyDown={e => { if (e.key === 'Backspace' && !otp[i] && i > 0) (document.getElementById(`otp-${i-1}`) as HTMLInputElement)?.focus() }}
+                />
+              ))}
+            </div>
+            {error && <p className="text-xs text-red-500 text-center mb-3 mt-1">{error}</p>}
+            {!error && <div className="mb-3" />}
+            <button onClick={handleOtp} disabled={otp.length < 4 || loading} className="w-full bg-[#2E7D5B] hover:bg-[#1F5940] disabled:opacity-50 text-white font-semibold py-3 rounded-xl text-sm transition-all">
               {loading ? 'Memverifikasi...' : 'Verifikasi & Masuk'}
             </button>
-            <button onClick={() => setStep('phone')} className="w-full text-center text-xs text-gray-400 mt-3 hover:text-gray-600">
-              Ganti nomor HP
+            <button onClick={() => { setStep('phone'); setOtp(''); setError('') }} className="w-full text-center text-xs text-gray-400 mt-3 hover:text-gray-600 transition">
+              ← Ganti nomor HP
             </button>
           </>
         )}
 
         <div className="mt-5 pt-5 border-t border-gray-100 text-center">
-          <p className="text-sm text-gray-500">Belum punya akun? <button onClick={onSwitch} className="text-[#2E7D5B] font-semibold hover:underline">Daftar Gratis</button></p>
+          <p className="text-sm text-gray-500">Belum punya akun? <button onClick={() => { reset(); onSwitch() }} className="text-[#2E7D5B] font-semibold hover:underline">Daftar Gratis</button></p>
         </div>
       </div>
     </Modal>
@@ -184,59 +222,145 @@ function LoginModal({ open, onClose, onSwitch, onSuccess }: { open: boolean; onC
 
 // ─── Modal: Register ─────────────────────────────────────────────────────────
 
-function RegisterModal({ open, onClose, onSwitch, onSuccess }: { open: boolean; onClose: () => void; onSwitch: () => void; onSuccess: (name: string) => void }) {
+function RegisterModal({ open, onClose, onSwitch, onSuccess }: { open: boolean; onClose: () => void; onSwitch: () => void; onSuccess: (user: User) => void }) {
   const [form, setForm] = useState({ name: '', phone: '', area: '' })
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
+  const [step, setStep] = useState<'form' | 'otp'>('form')
+  const [otp, setOtp] = useState('')
+  const [sentOtp, setSentOtp] = useState('')
+  const [otpError, setOtpError] = useState('')
   const areas = ['Ilir Timur I', 'Ilir Timur II', 'Ilir Barat I', 'Ilir Barat II', 'Seberang Ulu I', 'Seberang Ulu II', 'Bukit Kecil', 'Gandus', 'Alang-Alang Lebar', 'Sako', 'Sukarami', 'Kemuning', 'Kalidoni', 'Sematang Borang', 'Plaju', 'Kertapati']
 
-  function handle() {
-    if (!form.name || !form.phone || !form.area) return
+  function reset() { setForm({ name: '', phone: '', area: '' }); setErrors({}); setStep('form'); setOtp(''); setSentOtp(''); setOtpError('') }
+  function handleClose() { reset(); onClose() }
+
+  function validate() {
+    const e: Record<string, string> = {}
+    if (!form.name.trim() || form.name.trim().length < 2) e.name = 'Nama minimal 2 karakter'
+    const cleaned = form.phone.replace(/\D/g, '')
+    if (cleaned.length < 9) e.phone = 'Nomor HP tidak valid (min. 9 digit)'
+    else if (phoneExists(form.phone)) e.phone = 'Nomor HP sudah terdaftar. Silakan masuk.'
+    if (!form.area) e.area = 'Pilih kecamatan Anda'
+    setErrors(e)
+    return Object.keys(e).length === 0
+  }
+
+  function handleForm() {
+    if (!validate()) return
     setLoading(true)
-    setTimeout(() => { setLoading(false); onSuccess(form.name); onClose() }, 1200)
+    const code = generateOtp(form.phone)
+    setSentOtp(code)
+    setTimeout(() => { setLoading(false); setStep('otp') }, 800)
+  }
+
+  function handleOtp() {
+    setOtpError('')
+    if (otp !== sentOtp) { setOtpError('Kode OTP salah. Coba lagi.'); return }
+    setLoading(true)
+    setTimeout(() => {
+      const result = register(form.name, form.phone, form.area)
+      setLoading(false)
+      if (!result.ok) { setOtpError(result.error); return }
+      reset()
+      onSuccess(result.user)
+      onClose()
+    }, 600)
+  }
+
+  function field(key: keyof typeof form) {
+    return `w-full border rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 transition bg-white ${errors[key] ? 'border-red-400 focus:border-red-400 focus:ring-red-100' : 'border-gray-200 focus:border-[#2E7D5B] focus:ring-[#2E7D5B]/20'}`
   }
 
   return (
-    <Modal open={open} onClose={onClose}>
+    <Modal open={open} onClose={handleClose}>
       <div className="p-6 lg:p-8">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-9 h-9 rounded-xl bg-[#2E7D5B] flex items-center justify-center">
             <span className="text-white font-bold text-sm">P</span>
           </div>
           <div>
-            <h2 className="font-bold text-lg text-[#1A1A1A]">Daftar PUNYA</h2>
-            <p className="text-xs text-gray-400">Gratis, untuk warga Palembang</p>
+            <h2 className="font-bold text-lg text-[#1A1A1A]">{step === 'form' ? 'Daftar PUNYA' : 'Verifikasi Nomor HP'}</h2>
+            <p className="text-xs text-gray-400">{step === 'form' ? 'Gratis, untuk warga Palembang' : `Kode dikirim ke +62${form.phone}`}</p>
           </div>
         </div>
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Nama Lengkap</label>
-            <input className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#2E7D5B] focus:ring-2 focus:ring-[#2E7D5B]/20 transition" placeholder="Contoh: Budi Santoso" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Nomor HP</label>
-            <div className="flex gap-2">
-              <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 flex items-center text-sm text-gray-500 font-medium">+62</div>
-              <input className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#2E7D5B] focus:ring-2 focus:ring-[#2E7D5B]/20 transition" placeholder="812-3456-7890" type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+        {step === 'form' ? (
+          <>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Nama Lengkap</label>
+                <input className={field('name')} placeholder="Contoh: Budi Santoso" value={form.name} onChange={e => { setForm(f => ({ ...f, name: e.target.value })); setErrors(er => ({ ...er, name: '' })) }} autoFocus />
+                {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Nomor HP</label>
+                <div className="flex gap-2">
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 flex items-center text-sm text-gray-500 font-medium whitespace-nowrap">+62</div>
+                  <input className={field('phone')} placeholder="812-3456-7890" type="tel" value={form.phone} onChange={e => { setForm(f => ({ ...f, phone: e.target.value })); setErrors(er => ({ ...er, phone: '' })) }} />
+                </div>
+                {errors.phone && <p className="text-xs text-red-500 mt-1">{errors.phone}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Kecamatan</label>
+                <select className={field('area')} value={form.area} onChange={e => { setForm(f => ({ ...f, area: e.target.value })); setErrors(er => ({ ...er, area: '' })) }}>
+                  <option value="">Pilih kecamatan...</option>
+                  {areas.map(a => <option key={a}>{a}</option>)}
+                </select>
+                {errors.area && <p className="text-xs text-red-500 mt-1">{errors.area}</p>}
+              </div>
             </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Kecamatan</label>
-            <select className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#2E7D5B] focus:ring-2 focus:ring-[#2E7D5B]/20 transition bg-white" value={form.area} onChange={e => setForm(f => ({ ...f, area: e.target.value }))}>
-              <option value="">Pilih kecamatan...</option>
-              {areas.map(a => <option key={a}>{a}</option>)}
-            </select>
-          </div>
-        </div>
 
-        <button onClick={handle} disabled={!form.name || !form.phone || !form.area || loading} className="w-full mt-5 bg-[#2E7D5B] hover:bg-[#1F5940] disabled:opacity-50 text-white font-semibold py-3 rounded-xl text-sm transition-all">
-          {loading ? 'Mendaftar...' : 'Daftar Sekarang'}
-        </button>
+            <button onClick={handleForm} disabled={loading} className="w-full mt-5 bg-[#2E7D5B] hover:bg-[#1F5940] disabled:opacity-50 text-white font-semibold py-3 rounded-xl text-sm transition-all">
+              {loading ? 'Memproses...' : 'Daftar & Verifikasi →'}
+            </button>
+            <p className="text-[11px] text-gray-400 text-center mt-3">Dengan mendaftar Anda menyetujui Syarat & Ketentuan PUNYA</p>
+          </>
+        ) : (
+          <>
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 mb-5 flex items-start gap-2">
+              <span className="text-amber-500 text-sm mt-0.5">💡</span>
+              <div>
+                <p className="text-xs text-amber-800 font-semibold mb-0.5">Demo mode</p>
+                <p className="text-xs text-amber-700">Kode OTP Anda: <span className="font-bold text-amber-900 tracking-widest text-sm">{sentOtp}</span></p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">Masukkan kode 4 digit di bawah ini:</p>
+            <div className="flex gap-2 justify-center mb-1">
+              {[0,1,2,3].map(i => (
+                <input
+                  key={i}
+                  id={`reg-otp-${i}`}
+                  className={`w-12 h-14 border rounded-xl text-center text-2xl font-bold outline-none focus:ring-2 transition ${otpError ? 'border-red-400 focus:border-red-400 focus:ring-red-100' : 'border-gray-200 focus:border-[#2E7D5B] focus:ring-[#2E7D5B]/20'}`}
+                  maxLength={1}
+                  type="number"
+                  value={otp[i] ?? ''}
+                  onChange={e => {
+                    const v = e.target.value.slice(-1)
+                    const arr = otp.split('')
+                    arr[i] = v
+                    setOtp(arr.join('').slice(0, 4))
+                    setOtpError('')
+                    if (v && i < 3) (document.getElementById(`reg-otp-${i+1}`) as HTMLInputElement)?.focus()
+                  }}
+                  onKeyDown={e => { if (e.key === 'Backspace' && !otp[i] && i > 0) (document.getElementById(`reg-otp-${i-1}`) as HTMLInputElement)?.focus() }}
+                  autoFocus={i === 0}
+                />
+              ))}
+            </div>
+            {otpError && <p className="text-xs text-red-500 text-center mt-1 mb-2">{otpError}</p>}
+            {!otpError && <div className="mb-3" />}
+            <button onClick={handleOtp} disabled={otp.length < 4 || loading} className="w-full bg-[#2E7D5B] hover:bg-[#1F5940] disabled:opacity-50 text-white font-semibold py-3 rounded-xl text-sm transition-all">
+              {loading ? 'Membuat akun...' : 'Konfirmasi & Buat Akun'}
+            </button>
+            <button onClick={() => { setStep('form'); setOtp(''); setOtpError('') }} className="w-full text-center text-xs text-gray-400 mt-3 hover:text-gray-600 transition">
+              ← Kembali ubah data
+            </button>
+          </>
+        )}
 
-        <p className="text-[11px] text-gray-400 text-center mt-3">Dengan mendaftar Anda menyetujui Syarat & Ketentuan PUNYA</p>
-
-        <div className="mt-4 pt-4 border-t border-gray-100 text-center">
-          <p className="text-sm text-gray-500">Sudah punya akun? <button onClick={onSwitch} className="text-[#2E7D5B] font-semibold hover:underline">Masuk</button></p>
+        <div className="mt-5 pt-5 border-t border-gray-100 text-center">
+          <p className="text-sm text-gray-500">Sudah punya akun? <button onClick={() => { reset(); onSwitch() }} className="text-[#2E7D5B] font-semibold hover:underline">Masuk</button></p>
         </div>
       </div>
     </Modal>
@@ -740,7 +864,7 @@ function MessagesPage() {
   )
 }
 
-function ProfilePage({ user, onLogout, onLogin }: { user: string | null; onLogout: () => void; onLogin: () => void }) {
+function ProfilePage({ user, onLogout, onLogin }: { user: User | null; onLogout: () => void; onLogin: () => void }) {
   const menu = [
     { icon: '📦', label: 'Listing Saya', count: '3' },
     { icon: '🛍️', label: 'Pembelian', count: '7' },
@@ -767,11 +891,11 @@ function ProfilePage({ user, onLogout, onLogin }: { user: string | null; onLogou
     <div className="p-4 max-w-2xl mx-auto">
       <div className="bg-white rounded-2xl border border-gray-100 p-5 mb-4 flex items-center gap-4">
         <div className="w-14 h-14 rounded-full bg-[#2E7D5B] flex items-center justify-center text-2xl font-bold text-white flex-shrink-0">
-          {user[0]}
+          {user.name[0].toUpperCase()}
         </div>
         <div className="flex-1">
-          <p className="font-bold text-[#1A1A1A]">{user}</p>
-          <p className="text-xs text-gray-400">Anggota sejak September 2024</p>
+          <p className="font-bold text-[#1A1A1A]">{user.name}</p>
+          <p className="text-xs text-gray-400">Anggota sejak {user.joinedAt} · {user.area}</p>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[11px] bg-[#E8F5EF] text-[#2E7D5B] font-semibold px-2 py-0.5 rounded-full">✓ Terverifikasi</span>
             <span className="text-[11px] text-amber-500">★ 4.9</span>
@@ -833,8 +957,8 @@ export default function App() {
   const [searchFocus, setSearchFocus] = useState(false)
   const [searchQ, setSearchQ] = useState('')
 
-  // Auth
-  const [user, setUser] = useState<string | null>(null)
+  // Auth — load persisted session on mount
+  const [user, setUser] = useState<User | null>(() => getSession())
   const [showLogin, setShowLogin] = useState(false)
   const [showRegister, setShowRegister] = useState(false)
 
@@ -904,7 +1028,7 @@ export default function App() {
           <button onClick={() => setShowLogin(true)} className="bg-[#2E7D5B] text-white font-semibold px-6 py-3 rounded-xl text-sm">Masuk</button>
         </div>
       ) : <MessagesPage />}
-      <LoginModal open={showLogin} onClose={() => setShowLogin(false)} onSwitch={() => { setShowLogin(false); setShowRegister(true) }} onSuccess={n => { setUser(n); showToast(`Selamat datang, ${n}!`) }} />
+      <LoginModal open={showLogin} onClose={() => setShowLogin(false)} onSwitch={() => { setShowLogin(false); setShowRegister(true) }} onSuccess={u => { setUser(u); showToast(`Selamat datang, ${u.name}!`) }} />
       {toast && <Toast msg={toast} onClose={() => setToast(null)} />}
     </div>
   )
@@ -916,8 +1040,8 @@ export default function App() {
         <div className="w-7 h-7 rounded-lg bg-[#2E7D5B] flex items-center justify-center"><span className="text-white font-bold text-xs">P</span></div>
         <span className="font-bold text-base">PUNYA</span>
       </div>
-      <ProfilePage user={user} onLogout={() => { setUser(null); showToast('Anda sudah keluar') }} onLogin={() => setShowLogin(true)} />
-      <LoginModal open={showLogin} onClose={() => setShowLogin(false)} onSwitch={() => { setShowLogin(false); setShowRegister(true) }} onSuccess={n => { setUser(n); showToast(`Selamat datang, ${n}!`) }} />
+      <ProfilePage user={user} onLogout={() => { logout(); setUser(null); showToast('Anda sudah keluar') }} onLogin={() => setShowLogin(true)} />
+      <LoginModal open={showLogin} onClose={() => setShowLogin(false)} onSwitch={() => { setShowLogin(false); setShowRegister(true) }} onSuccess={u => { setUser(u); showToast(`Selamat datang, ${u.name}!`) }} />
       {toast && <Toast msg={toast} onClose={() => setToast(null)} />}
     </div>
   )
@@ -927,8 +1051,8 @@ export default function App() {
     <div className="min-h-screen bg-[#FAFAF8] font-sans pb-20 lg:pb-0">
 
       {/* Modals */}
-      <LoginModal open={showLogin} onClose={() => setShowLogin(false)} onSwitch={() => { setShowLogin(false); setShowRegister(true) }} onSuccess={n => { setUser(n); showToast(`Selamat datang, ${n}!`) }} />
-      <RegisterModal open={showRegister} onClose={() => setShowRegister(false)} onSwitch={() => { setShowRegister(false); setShowLogin(true) }} onSuccess={n => { setUser(n); showToast(`Akun berhasil dibuat, ${n}!`) }} />
+      <LoginModal open={showLogin} onClose={() => setShowLogin(false)} onSwitch={() => { setShowLogin(false); setShowRegister(true) }} onSuccess={u => { setUser(u); showToast(`Selamat datang, ${u.name}!`) }} />
+      <RegisterModal open={showRegister} onClose={() => setShowRegister(false)} onSwitch={() => { setShowRegister(false); setShowLogin(true) }} onSuccess={u => { setUser(u); showToast(`Akun berhasil dibuat, ${u.name}!`) }} />
       <ListingModal listing={selectedListing} open={!!selectedListing} onClose={() => setSelectedListing(null)} onChat={handleChatFromListing} onRekber={handleRekberFromListing} loggedIn={!!user} onNeedLogin={() => { setSelectedListing(null); setShowLogin(true) }} />
       <RekberModal open={showRekber} onClose={() => setShowRekber(false)} listingTitle={rekberListing} />
       <AIModal open={showAI} onClose={() => setShowAI(false)} onSuccess={() => showToast('Listing berhasil dipublikasikan!')} />
@@ -959,8 +1083,8 @@ export default function App() {
                 💬 <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-[#2E7D5B] rounded-full text-white text-[9px] flex items-center justify-center font-bold">2</span>
               </button>
               <button onClick={() => setActiveNav(4)} className="flex items-center gap-2 text-sm font-medium text-[#1A1A1A] px-3 py-2 rounded-xl hover:bg-gray-50 border border-gray-200 transition">
-                <div className="w-6 h-6 rounded-full bg-[#2E7D5B] flex items-center justify-center text-white text-xs font-bold">{user[0]}</div>
-                {user}
+                <div className="w-6 h-6 rounded-full bg-[#2E7D5B] flex items-center justify-center text-white text-xs font-bold">{user.name[0].toUpperCase()}</div>
+                {user.name}
               </button>
             </>
           ) : (
@@ -989,7 +1113,7 @@ export default function App() {
               ✨ AI
             </button>
             {user ? (
-              <button onClick={() => setActiveNav(4)} className="w-8 h-8 rounded-full bg-[#2E7D5B] flex items-center justify-center text-white text-xs font-bold">{user[0]}</button>
+              <button onClick={() => setActiveNav(4)} className="w-8 h-8 rounded-full bg-[#2E7D5B] flex items-center justify-center text-white text-xs font-bold">{user.name[0].toUpperCase()}</button>
             ) : (
               <button onClick={() => setShowLogin(true)} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-sm">👤</button>
             )}
